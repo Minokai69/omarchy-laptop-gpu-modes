@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.minokai69.laptop-gpu-modes",
+  "name": "Laptop GPU Modes",
+  "version": "1.0.0",
+  "author": "Minokai-Dev",
+  "description": "Theme-aware GPU mode controls for NVIDIA hybrid-graphics laptops",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "Panel.qml"
+  },
+  "barWidget": {
+    "displayName": "Laptop GPU Modes",
+    "description": "Theme-aware GPU mode controls for NVIDIA hybrid-graphics laptops",
+    "category": "System",
+    "allowMultiple": false
+  }
+}
