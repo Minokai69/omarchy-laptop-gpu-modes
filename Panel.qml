@@ -15,14 +15,16 @@ Panel {
   manageIpc: false
   property var batteryInfo: ({})
   property var systemInfo: ({})
-  readonly property string gpuModeHelper: Qt.resolvedUrl("set-mode.sh").toString().replace(/^file:\/\//, "")
   property var profiles: []
   property string activeProfile: ""
   property int profileIndex: 0
-  property var gpuModes: ["Integrated", "Hybrid", "Vfio"]
+  property var gpuModes: []
   property string gpuMode: ""
+  property string gpuVendor: ""
+  property bool gpuAvailable: false
   property string requestedGpuMode: ""
   property bool gpuChangePending: false
+  property string gpuError: ""
   property bool cursorActive: false
   readonly property bool showPercentage: setting("showPercentage", false) === true
   // With the percentage shown the button paints a text block wider than an
@@ -143,8 +145,7 @@ Panel {
     if (!batteryProc.running) batteryProc.running = true
     if (!profilesProc.running) profilesProc.running = true
     if (!systemProc.running) systemProc.running = true
-    if (!gpuModeProc.running) gpuModeProc.running = true
-    if (!gpuModesProc.running) gpuModesProc.running = true
+    if (!gpuCapabilityProc.running) gpuCapabilityProc.running = true
   }
 
   function updateKeyValue(raw, targetName) {
@@ -181,6 +182,21 @@ Panel {
     if (value !== "") gpuMode = value
   }
 
+  function updateGpuCapability(raw) {
+    var lines = String(raw || "").trim().split(/\r?\n/)
+    var vendor = (lines.shift() || "").trim()
+    var value = (lines.shift() || "").replace(/[\[\]]/g, "")
+    var current = (lines.shift() || "").trim()
+    var next = value.split(",").map(function(item) { return item.trim() }).filter(function(item) { return item !== "" })
+    var isNvidia = vendor.toLowerCase().indexOf("nvidia") >= 0
+
+    gpuVendor = vendor
+    gpuMode = current
+    gpuModes = next
+    gpuAvailable = isNvidia && next.length > 1
+    gpuError = ""
+  }
+
   function updateGpuModes(raw) {
     var value = String(raw || "").replace(/[\[\]]/g, "")
     var next = value.split(",").map(function(item) { return item.trim() }).filter(function(item) { return item !== "" })
@@ -188,21 +204,27 @@ Panel {
   }
 
   function requestGpuMode(mode) {
-    if (!mode || mode === gpuMode || gpuChangePending) return
+    if (!gpuAvailable || gpuModes.indexOf(mode) < 0 || mode === gpuMode || gpuChangePending) return
     requestedGpuMode = mode
+    gpuModeConfirm.opened = true
+  }
+
+  function applyGpuMode() {
+    if (!gpuAvailable || !requestedGpuMode || gpuChangePending) return
     gpuChangePending = true
-    gpuConfigProc.command = ["pkexec", gpuModeHelper, mode]
+    gpuModeConfirm.opened = false
+    gpuConfigProc.command = ["supergfxctl", "-m", requestedGpuMode]
     gpuConfigProc.running = true
   }
 
   function gpuConfigFinished(code) {
     if (code !== 0) {
       gpuChangePending = false
+      gpuError = "Unable to request this GPU mode"
       return
     }
     gpuChangePending = false
-    gpuModeConfirm.selectedIndex = 1
-    gpuModeConfirm.opened = true
+    refresh()
   }
 
   function togglePercentage() {
@@ -265,31 +287,21 @@ Panel {
   }
 
   Process {
-    id: gpuModeProc
-    command: ["supergfxctl", "-g"]
-    stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.updateGpuMode(text) }
-  }
-
-  Process {
-    id: gpuModesProc
-    command: ["supergfxctl", "-s"]
-    stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.updateGpuModes(text) }
+    id: gpuCapabilityProc
+    command: ["sh", "-c", "vendor=$(command -v supergfxctl >/dev/null 2>&1 && supergfxctl -V 2>/dev/null) || exit 1; modes=$(supergfxctl -s 2>/dev/null) || exit 1; current=$(supergfxctl -g 2>/dev/null) || exit 1; printf '%s\\n%s\\n%s\\n' \"$vendor\" \"$modes\" \"$current\""]
+    stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.updateGpuCapability(text) }
+    onExited: function(code) {
+      if (code !== 0) {
+        root.gpuAvailable = false
+        root.gpuVendor = ""
+        root.gpuModes = []
+      }
+    }
   }
 
   Process {
     id: gpuConfigProc
     onExited: function(code) { root.gpuConfigFinished(code) }
-  }
-
-  Process {
-    id: gpuRebootProc
-    command: ["omarchy", "system", "reboot"]
-  }
-
-  Timer {
-    id: gpuRebootDelay
-    interval: 1800
-    onTriggered: gpuRebootProc.running = true
   }
 
   Timer { interval: 5000; running: root.opened; repeat: true; onTriggered: root.refresh() }
@@ -565,12 +577,13 @@ Panel {
           }
         }
 
-        // ---------- Laptop GPU mode picker ----------
         PanelSeparator {
+          visible: root.gpuAvailable
           foreground: root.bar.foreground
         }
 
         Column {
+          visible: root.gpuAvailable
           width: parent.width
           spacing: Style.space(10)
 
@@ -584,7 +597,8 @@ Panel {
             width: parent.width
             text: root.gpuChangePending
               ? "Preparing reboot for " + root.requestedGpuMode + "…"
-              : (root.gpuMode !== "" ? "Current: " + root.gpuMode + " · reboot required" : "Detecting…")
+              : (root.gpuError !== "" ? root.gpuError
+                : (root.gpuMode !== "" ? "Current: " + root.gpuMode + " · reboot required" : "Detecting…"))
             color: root.bar.foreground
             opacity: 0.65
             font.family: root.bar.fontFamily
@@ -627,17 +641,14 @@ Panel {
         id: gpuModeConfirm
         anchors.fill: parent
         z: 20
-        message: "Switch GPU mode to " + root.requestedGpuMode + "?\n\nGPU changes are reboot-only for safety. Save your work before rebooting."
+        message: "Apply GPU mode " + root.requestedGpuMode + "?\n\nThe installed GPU service will determine whether a logout or reboot is required. Save your work before applying the change."
         cancelText: "Later"
-        confirmText: "Reboot"
+        confirmText: "Apply"
         background: Color.popups.background
         foreground: root.bar.foreground
         fontFamily: root.bar.fontFamily
         onCanceled: opened = false
-        onConfirmed: {
-          opened = false
-          gpuRebootDelay.restart()
-        }
+        onConfirmed: root.applyGpuMode()
       }
     }
   }

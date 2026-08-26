@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "io.github.minokai69.laptop-gpu-modes",
   "name": "Laptop GPU Modes",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": "Minokai-Dev",
   "description": "Theme-aware GPU mode controls for NVIDIA hybrid-graphics laptops",
   "kinds": [

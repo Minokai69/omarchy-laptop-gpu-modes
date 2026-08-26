@@ -6,20 +6,20 @@ It adds Integrated, Hybrid, and VFIO mode controls below the existing power-prof
 ## What it does
 
 - Shows the current `supergfxctl` graphics mode.
-- Discovers the modes supported by the installed `supergfxd`.
+- Discovers whether an NVIDIA GPU and usable `supergfxctl` installation are available.
+- Hides the GPU controls on unsupported hardware or systems without `supergfxctl`.
 - Uses Omarchy’s existing panel, button, spacing, color, and dialog components.
-- Writes the requested mode to `supergfxd`’s persistent configuration.
-- Forces reboot-only transitions so NVIDIA modules are never unloaded while Hyprland is running.
-- Requires confirmation before rebooting.
+- Requests mode changes through the installed `supergfxctl` client and daemon.
+- Leaves transition and authorization policy to `supergfxd` and the system’s polkit setup.
+- Requires confirmation before applying a mode change.
 
-Reboot-only behavior is intentional. Live switching can terminate Hyprland when applications or the compositor hold `/dev/nvidia0`.
+The daemon decides whether a mode transition is immediate or requires a logout/reboot. The plugin asks for confirmation before applying the change and does not automatically reboot the machine.
 
 ## Requirements
 
 - Omarchy with the Quickshell plugin system.
-- `supergfxctl`/`supergfxd` installed and enabled.
-- NVIDIA laptop hardware supported by the installed NVIDIA driver.
-- `jq` available for the privileged configuration helper.
+- `supergfxctl` installed and able to communicate with `supergfxd`.
+- An NVIDIA GPU supported by the installed `supergfxd` configuration.
 
 ## Install
 
@@ -49,7 +49,7 @@ Removing the plugin does not change the current system GPU mode. Choose a desire
 
 ## Safety
 
-The plugin runs unsandboxed code and invokes privileged `pkexec` operations. Review the source before installing. The helper accepts only the three known mode names and rewrites only `/etc/supergfxd.conf` before rebooting.
+The plugin runs unsandboxed Quickshell code, but it does not ship a privileged helper or write system configuration files directly. It only invokes the installed `supergfxctl -m` client with one of the modes reported by `supergfxctl -s`. Authorization and transition behavior remain controlled by `supergfxd` and the system’s polkit configuration.
 
 ## License
 
