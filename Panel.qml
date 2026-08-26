@@ -21,7 +21,10 @@ Panel {
   property var gpuModes: []
   property string gpuMode: ""
   property string gpuVendor: ""
+  property string gpuClientPath: ""
   property bool gpuAvailable: false
+  property string gpuPendingAction: ""
+  property string gpuPendingMode: ""
   property string requestedGpuMode: ""
   property bool gpuChangePending: false
   property string gpuError: ""
@@ -146,6 +149,16 @@ Panel {
     if (!profilesProc.running) profilesProc.running = true
     if (!systemProc.running) systemProc.running = true
     if (!gpuCapabilityProc.running) gpuCapabilityProc.running = true
+    if (gpuAvailable) {
+      if (!gpuPendingActionProc.running) {
+        gpuPendingActionProc.command = [gpuClientPath, "-p"]
+        gpuPendingActionProc.running = true
+      }
+      if (!gpuPendingModeProc.running) {
+        gpuPendingModeProc.command = [gpuClientPath, "-P"]
+        gpuPendingModeProc.running = true
+      }
+    }
   }
 
   function updateKeyValue(raw, targetName) {
@@ -184,12 +197,14 @@ Panel {
 
   function updateGpuCapability(raw) {
     var lines = String(raw || "").trim().split(/\r?\n/)
+    var clientPath = (lines.shift() || "").trim()
     var vendor = (lines.shift() || "").trim()
     var value = (lines.shift() || "").replace(/[\[\]]/g, "")
     var current = (lines.shift() || "").trim()
     var next = value.split(",").map(function(item) { return item.trim() }).filter(function(item) { return item !== "" })
     var isNvidia = vendor.toLowerCase().indexOf("nvidia") >= 0
 
+    gpuClientPath = clientPath
     gpuVendor = vendor
     gpuMode = current
     gpuModes = next
@@ -197,11 +212,14 @@ Panel {
     gpuError = ""
   }
 
-  function updateGpuModes(raw) {
-    var value = String(raw || "").replace(/[\[\]]/g, "")
-    var next = value.split(",").map(function(item) { return item.trim() }).filter(function(item) { return item !== "" })
-    if (next.length > 0) gpuModes = next
+  function updateGpuPendingAction(raw) {
+    gpuPendingAction = String(raw || "").trim()
   }
+
+  function updateGpuPendingMode(raw) {
+    gpuPendingMode = String(raw || "").trim()
+  }
+
 
   function requestGpuMode(mode) {
     if (!gpuAvailable || gpuModes.indexOf(mode) < 0 || mode === gpuMode || gpuChangePending) return
@@ -213,7 +231,7 @@ Panel {
     if (!gpuAvailable || !requestedGpuMode || gpuChangePending) return
     gpuChangePending = true
     gpuModeConfirm.opened = false
-    gpuConfigProc.command = ["supergfxctl", "-m", requestedGpuMode]
+    gpuConfigProc.command = [gpuClientPath, "-m", requestedGpuMode]
     gpuConfigProc.running = true
   }
 
@@ -288,12 +306,15 @@ Panel {
 
   Process {
     id: gpuCapabilityProc
-    command: ["sh", "-c", "vendor=$(command -v supergfxctl >/dev/null 2>&1 && supergfxctl -V 2>/dev/null) || exit 1; modes=$(supergfxctl -s 2>/dev/null) || exit 1; current=$(supergfxctl -g 2>/dev/null) || exit 1; printf '%s\\n%s\\n%s\\n' \"$vendor\" \"$modes\" \"$current\""]
+    command: ["sh", "-c", "client=$(command -v supergfxctl) || exit 1; vendor=$(\"$client\" -V 2>/dev/null) || exit 1; modes=$(\"$client\" -s 2>/dev/null) || exit 1; current=$(\"$client\" -g 2>/dev/null) || exit 1; printf '%s\\n%s\\n%s\\n%s\\n' \"$client\" \"$vendor\" \"$modes\" \"$current\""]
     stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.updateGpuCapability(text) }
     onExited: function(code) {
       if (code !== 0) {
         root.gpuAvailable = false
+        root.gpuClientPath = ""
         root.gpuVendor = ""
+        root.gpuPendingAction = ""
+        root.gpuPendingMode = ""
         root.gpuModes = []
       }
     }
@@ -302,6 +323,20 @@ Panel {
   Process {
     id: gpuConfigProc
     onExited: function(code) { root.gpuConfigFinished(code) }
+  }
+
+  Process {
+    id: gpuPendingActionProc
+    onExited: function(code) {
+      if (code !== 0) root.gpuPendingAction = ""
+    }
+  }
+
+  Process {
+    id: gpuPendingModeProc
+    onExited: function(code) {
+      if (code !== 0) root.gpuPendingMode = ""
+    }
   }
 
   Timer { interval: 5000; running: root.opened; repeat: true; onTriggered: root.refresh() }
@@ -596,9 +631,11 @@ Panel {
           Text {
             width: parent.width
             text: root.gpuChangePending
-              ? "Preparing reboot for " + root.requestedGpuMode + "…"
+              ? "Applying " + root.requestedGpuMode + "…"
               : (root.gpuError !== "" ? root.gpuError
-                : (root.gpuMode !== "" ? "Current: " + root.gpuMode + " · reboot required" : "Detecting…"))
+                : (root.gpuPendingAction !== "" && root.gpuPendingAction !== "No action required"
+                  ? root.gpuPendingAction + (root.gpuPendingMode !== "Unknown" ? " for " + root.gpuPendingMode : "")
+                  : (root.gpuMode !== "" ? "Current: " + root.gpuMode : "Detecting…")))
             color: root.bar.foreground
             opacity: 0.65
             font.family: root.bar.fontFamily

@@ -9,6 +9,7 @@ It adds Integrated, Hybrid, and VFIO mode controls below the existing power-prof
 - Discovers whether an NVIDIA GPU and usable `supergfxctl` installation are available.
 - Hides the GPU controls on unsupported hardware or systems without `supergfxctl`.
 - Uses Omarchy’s existing panel, button, spacing, color, and dialog components.
+- Reports any pending action and target mode from `supergfxctl` so users know when a logout or reboot is needed.
 - Requests mode changes through the installed `supergfxctl` client and daemon.
 - Leaves transition and authorization policy to `supergfxd` and the system’s polkit setup.
 - Requires confirmation before applying a mode change.
